@@ -7,12 +7,15 @@ import (
 )
 
 func main() {
+	staticDir := "./static"
 	port := os.Getenv("TRIGO_PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	staticFolderDir := "./static"
-	server := trivia.NewServer(staticFolderDir)
+	hub := trivia.NewHub()
+	go hub.Run()
+
+	server := trivia.NewServer(staticDir, hub)
 	server.Run(port)
 }

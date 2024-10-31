@@ -4,16 +4,24 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/gorilla/websocket"
 )
 
 type Server struct {
-	staticFolderDir string
-	mux             *http.ServeMux
+	staticDir string
+	hub       *Hub
+	mux       *http.ServeMux
 }
 
-func NewServer(staticFolderDir string) *Server {
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
+func NewServer(staticDir string, hub *Hub) *Server {
 	mux := http.NewServeMux()
-	server := &Server{staticFolderDir: staticFolderDir, mux: mux}
+	server := &Server{staticDir: staticDir, hub: hub, mux: mux}
 	server.configureRoutes()
 
 	return server
@@ -24,10 +32,24 @@ func (s *Server) configureRoutes() {
 	apiMux.HandleFunc("GET /room/{room}", s.apiHandleRoomGet)
 
 	rootMux := http.NewServeMux()
-	rootMux.Handle("/", http.FileServer(http.Dir(s.staticFolderDir)))
+	rootMux.Handle("/", http.FileServer(http.Dir(s.staticDir)))
+	rootMux.HandleFunc("GET /ws", s.handleWebsocket)
 
 	s.mux.Handle("/", rootMux)
 	s.mux.Handle("/api/", http.StripPrefix("/api", apiMux))
+}
+
+func (s *Server) handleWebsocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	client := &Client{hub: s.hub, send: make(chan []byte, 256), conn: conn}
+	client.hub.register <- client
+
+	go client.writePump()
+	go client.readPump()
 }
 
 func (s *Server) apiHandleRoomGet(w http.ResponseWriter, r *http.Request) {
